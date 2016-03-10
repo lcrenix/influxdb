@@ -631,16 +631,57 @@ func (itr *floatAuxIterator) stream() {
 
 // floatChanIterator represents a new instance of floatChanIterator.
 type floatChanIterator struct {
-	c    chan *FloatPoint
-	once sync.Once
+	buf  *FloatPoint
+	cond *sync.Cond
+	done bool
 }
 
 func (itr *floatChanIterator) Close() error {
-	itr.once.Do(func() { close(itr.c) })
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+	itr.done = true
+	itr.cond.Broadcast()
 	return nil
 }
 
-func (itr *floatChanIterator) Next() *FloatPoint { return <-itr.c }
+func (itr *floatChanIterator) setBuf(name string, tags Tags, time int64, value interface{}) bool {
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+
+	for !itr.done && itr.buf != nil {
+		itr.cond.Wait()
+	}
+
+	if itr.done {
+		return false
+	}
+
+	switch v := value.(type) {
+	case float64:
+		itr.buf = &FloatPoint{Name: name, Tags: tags, Time: time, Value: v}
+
+	case int64:
+		itr.buf = &FloatPoint{Name: name, Tags: tags, Time: time, Value: float64(v)}
+
+	default:
+		itr.buf = &FloatPoint{Name: name, Tags: tags, Time: time, Nil: true}
+	}
+	itr.cond.Signal()
+	return true
+}
+
+func (itr *floatChanIterator) Next() *FloatPoint {
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+
+	for !itr.done && itr.buf == nil {
+		itr.cond.Wait()
+	}
+	p := itr.buf
+	itr.buf = nil
+	itr.cond.Signal()
+	return p
+}
 
 // floatReduceFloatIterator executes a reducer for every interval and buffers the result.
 type floatReduceFloatIterator struct {
@@ -1769,16 +1810,54 @@ func (itr *integerAuxIterator) stream() {
 
 // integerChanIterator represents a new instance of integerChanIterator.
 type integerChanIterator struct {
-	c    chan *IntegerPoint
-	once sync.Once
+	buf  *IntegerPoint
+	cond *sync.Cond
+	done bool
 }
 
 func (itr *integerChanIterator) Close() error {
-	itr.once.Do(func() { close(itr.c) })
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+	itr.done = true
+	itr.cond.Broadcast()
 	return nil
 }
 
-func (itr *integerChanIterator) Next() *IntegerPoint { return <-itr.c }
+func (itr *integerChanIterator) setBuf(name string, tags Tags, time int64, value interface{}) bool {
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+
+	for !itr.done && itr.buf != nil {
+		itr.cond.Wait()
+	}
+
+	if itr.done {
+		return false
+	}
+
+	switch v := value.(type) {
+	case int64:
+		itr.buf = &IntegerPoint{Name: name, Tags: tags, Time: time, Value: v}
+
+	default:
+		itr.buf = &IntegerPoint{Name: name, Tags: tags, Time: time, Nil: true}
+	}
+	itr.cond.Signal()
+	return true
+}
+
+func (itr *integerChanIterator) Next() *IntegerPoint {
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+
+	for !itr.done && itr.buf == nil {
+		itr.cond.Wait()
+	}
+	p := itr.buf
+	itr.buf = nil
+	itr.cond.Signal()
+	return p
+}
 
 // integerReduceFloatIterator executes a reducer for every interval and buffers the result.
 type integerReduceFloatIterator struct {
@@ -2907,16 +2986,54 @@ func (itr *stringAuxIterator) stream() {
 
 // stringChanIterator represents a new instance of stringChanIterator.
 type stringChanIterator struct {
-	c    chan *StringPoint
-	once sync.Once
+	buf  *StringPoint
+	cond *sync.Cond
+	done bool
 }
 
 func (itr *stringChanIterator) Close() error {
-	itr.once.Do(func() { close(itr.c) })
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+	itr.done = true
+	itr.cond.Broadcast()
 	return nil
 }
 
-func (itr *stringChanIterator) Next() *StringPoint { return <-itr.c }
+func (itr *stringChanIterator) setBuf(name string, tags Tags, time int64, value interface{}) bool {
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+
+	for !itr.done && itr.buf != nil {
+		itr.cond.Wait()
+	}
+
+	if itr.done {
+		return false
+	}
+
+	switch v := value.(type) {
+	case string:
+		itr.buf = &StringPoint{Name: name, Tags: tags, Time: time, Value: v}
+
+	default:
+		itr.buf = &StringPoint{Name: name, Tags: tags, Time: time, Nil: true}
+	}
+	itr.cond.Signal()
+	return true
+}
+
+func (itr *stringChanIterator) Next() *StringPoint {
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+
+	for !itr.done && itr.buf == nil {
+		itr.cond.Wait()
+	}
+	p := itr.buf
+	itr.buf = nil
+	itr.cond.Signal()
+	return p
+}
 
 // stringReduceFloatIterator executes a reducer for every interval and buffers the result.
 type stringReduceFloatIterator struct {
@@ -4045,16 +4162,54 @@ func (itr *booleanAuxIterator) stream() {
 
 // booleanChanIterator represents a new instance of booleanChanIterator.
 type booleanChanIterator struct {
-	c    chan *BooleanPoint
-	once sync.Once
+	buf  *BooleanPoint
+	cond *sync.Cond
+	done bool
 }
 
 func (itr *booleanChanIterator) Close() error {
-	itr.once.Do(func() { close(itr.c) })
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+	itr.done = true
+	itr.cond.Broadcast()
 	return nil
 }
 
-func (itr *booleanChanIterator) Next() *BooleanPoint { return <-itr.c }
+func (itr *booleanChanIterator) setBuf(name string, tags Tags, time int64, value interface{}) bool {
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+
+	for !itr.done && itr.buf != nil {
+		itr.cond.Wait()
+	}
+
+	if itr.done {
+		return false
+	}
+
+	switch v := value.(type) {
+	case bool:
+		itr.buf = &BooleanPoint{Name: name, Tags: tags, Time: time, Value: v}
+
+	default:
+		itr.buf = &BooleanPoint{Name: name, Tags: tags, Time: time, Nil: true}
+	}
+	itr.cond.Signal()
+	return true
+}
+
+func (itr *booleanChanIterator) Next() *BooleanPoint {
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+
+	for !itr.done && itr.buf == nil {
+		itr.cond.Wait()
+	}
+	p := itr.buf
+	itr.buf = nil
+	itr.cond.Signal()
+	return p
+}
 
 // booleanReduceFloatIterator executes a reducer for every interval and buffers the result.
 type booleanReduceFloatIterator struct {

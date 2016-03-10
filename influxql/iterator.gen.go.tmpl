@@ -630,16 +630,57 @@ func (itr *{{$k.name}}AuxIterator) stream() {
 
 // {{$k.name}}ChanIterator represents a new instance of {{$k.name}}ChanIterator.
 type {{$k.name}}ChanIterator struct {
-	c    chan *{{$k.Name}}Point
-	once sync.Once
+	buf  *{{$k.Name}}Point
+	cond *sync.Cond
+	done bool
 }
 
 func (itr *{{$k.name}}ChanIterator) Close() error {
-	itr.once.Do(func() { close(itr.c) })
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+	itr.done = true
+	itr.cond.Broadcast()
 	return nil
 }
 
-func (itr *{{$k.name}}ChanIterator) Next() *{{$k.Name}}Point { return <-itr.c }
+func (itr *{{$k.name}}ChanIterator) setBuf(name string, tags Tags, time int64, value interface{}) bool {
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+
+	for !itr.done && itr.buf != nil {
+		itr.cond.Wait()
+	}
+
+	if itr.done {
+		return false
+	}
+
+	switch v := value.(type) {
+	case {{$k.Type}}:
+		itr.buf = &{{$k.Name}}Point{Name: name, Tags: tags, Time: time, Value: v}
+{{if eq $k.Name "Float"}}
+	case int64:
+		itr.buf = &{{$k.Name}}Point{Name: name, Tags: tags, Time: time, Value: float64(v)}
+{{end}}
+	default:
+		itr.buf = &{{$k.Name}}Point{Name: name, Tags: tags, Time: time, Nil: true}
+	}
+	itr.cond.Signal()
+	return true
+}
+
+func (itr *{{$k.name}}ChanIterator) Next() *{{$k.Name}}Point {
+	itr.cond.L.Lock()
+	defer itr.cond.L.Unlock()
+
+	for !itr.done && itr.buf == nil {
+		itr.cond.Wait()
+	}
+	p := itr.buf
+	itr.buf = nil
+	itr.cond.Signal()
+	return p
+}
 
 {{range $v := $types}}
 
