@@ -103,6 +103,7 @@ func (*DropMeasurementStatement) node()       {}
 func (*DropRetentionPolicyStatement) node()   {}
 func (*DropSeriesStatement) node()            {}
 func (*DropServerStatement) node()            {}
+func (*DropShardStatement) node()             {}
 func (*DropSubscriptionStatement) node()      {}
 func (*DropUserStatement) node()              {}
 func (*GrantStatement) node()                 {}
@@ -229,6 +230,7 @@ func (*ShowSeriesStatement) stmt()            {}
 func (*ShowShardGroupsStatement) stmt()       {}
 func (*ShowShardsStatement) stmt()            {}
 func (*ShowStatsStatement) stmt()             {}
+func (*DropShardStatement) stmt()             {}
 func (*ShowSubscriptionsStatement) stmt()     {}
 func (*ShowDiagnosticsStatement) stmt()       {}
 func (*ShowTagKeysStatement) stmt()           {}
@@ -302,6 +304,19 @@ func (a Sources) HasSystemSource() bool {
 		switch s := s.(type) {
 		case *Measurement:
 			if IsSystemName(s.Name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// HasRegex returns true if any of the sources are regex measurements.
+func (a Sources) HasRegex() bool {
+	for _, s := range a {
+		switch s := s.(type) {
+		case *Measurement:
+			if s.Regex != nil {
 				return true
 			}
 		}
@@ -1280,10 +1295,8 @@ func (s *SelectStatement) validateFields() error {
 	for _, f := range s.Fields {
 		switch expr := f.Expr.(type) {
 		case *BinaryExpr:
-			for _, call := range walkFunctionCalls(expr) {
-				if call.Name == "top" || call.Name == "bottom" {
-					return fmt.Errorf("cannot use %s() inside of a binary expression", call.Name)
-				}
+			if err := expr.validate(); err != nil {
+				return err
 			}
 		}
 	}
@@ -2121,6 +2134,30 @@ func (s *DropServerStatement) String() string {
 // RequiredPrivileges returns the privilege required to execute a DropServerStatement.
 func (s *DropServerStatement) RequiredPrivileges() ExecutionPrivileges {
 	return ExecutionPrivileges{{Name: "", Privilege: AllPrivileges}}
+}
+
+// DropShardStatement represents a command for removing a shard from
+// the node.
+type DropShardStatement struct {
+	// ID of the shard to be dropped.
+	ID uint64
+
+	// Meta indicates if the server being dropped is a meta or data node
+	Meta bool
+}
+
+// String returns a string representation of the drop series statement.
+func (s *DropShardStatement) String() string {
+	var buf bytes.Buffer
+	buf.WriteString("DROP SHARD ")
+	buf.WriteString(strconv.FormatUint(s.ID, 10))
+	return buf.String()
+}
+
+// RequiredPrivileges returns the privilege required to execute a
+// DropShardStatement.
+func (s *DropShardStatement) RequiredPrivileges() ExecutionPrivileges {
+	return ExecutionPrivileges{{Admin: true, Name: "", Privilege: AllPrivileges}}
 }
 
 // ShowContinuousQueriesStatement represents a command for listing continuous queries.
@@ -3058,6 +3095,52 @@ type BinaryExpr struct {
 // String returns a string representation of the binary expression.
 func (e *BinaryExpr) String() string {
 	return fmt.Sprintf("%s %s %s", e.LHS.String(), e.Op.String(), e.RHS.String())
+}
+
+func (e *BinaryExpr) validate() error {
+	v := binaryExprValidator{}
+	Walk(&v, e)
+	if v.err != nil {
+		return v.err
+	} else if v.calls && v.refs {
+		return errors.New("binary expressions cannot mix aggregates and raw fields")
+	}
+	return nil
+}
+
+type binaryExprValidator struct {
+	calls bool
+	refs  bool
+	err   error
+}
+
+func (v *binaryExprValidator) Visit(n Node) Visitor {
+	if v.err != nil {
+		return nil
+	}
+
+	switch n := n.(type) {
+	case *Call:
+		v.calls = true
+
+		if n.Name == "top" || n.Name == "bottom" {
+			v.err = fmt.Errorf("cannot use %s() inside of a binary expression", n.Name)
+			return nil
+		}
+
+		for _, expr := range n.Args {
+			switch e := expr.(type) {
+			case *BinaryExpr:
+				v.err = e.validate()
+				return nil
+			}
+		}
+		return nil
+	case *VarRef:
+		v.refs = true
+		return nil
+	}
+	return v
 }
 
 func BinaryExprName(expr *BinaryExpr) string {

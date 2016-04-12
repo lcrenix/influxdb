@@ -14,7 +14,6 @@ import (
 
 	"github.com/influxdata/influxdb"
 	"github.com/influxdata/influxdb/influxql"
-	"github.com/influxdata/influxdb/services/meta"
 	"github.com/influxdata/influxdb/tsdb"
 )
 
@@ -40,6 +39,23 @@ const (
 	seriesKeysResp = "seriesKeysResp"
 )
 
+const (
+	writeShardRequestMessage byte = iota + 1
+	writeShardResponseMessage
+
+	executeStatementRequestMessage
+	executeStatementResponseMessage
+
+	createIteratorRequestMessage
+	createIteratorResponseMessage
+
+	fieldDimensionsRequestMessage
+	fieldDimensionsResponseMessage
+
+	seriesKeysRequestMessage
+	seriesKeysResponseMessage
+)
+
 // Service processes data received over raw TCP connections.
 type Service struct {
 	mu sync.RWMutex
@@ -48,10 +64,6 @@ type Service struct {
 	closing chan struct{}
 
 	Listener net.Listener
-
-	MetaClient interface {
-		ShardOwner(shardID uint64) (string, string, *meta.ShardGroupInfo)
-	}
 
 	TSDBStore TSDBStore
 
@@ -228,6 +240,8 @@ func (s *Service) executeStatement(stmt influxql.Statement, database string) err
 		return s.TSDBStore.DeleteSeries(database, t.Sources, t.Condition)
 	case *influxql.DropRetentionPolicyStatement:
 		return s.TSDBStore.DeleteRetentionPolicy(database, t.Name)
+	case *influxql.DropShardStatement:
+		return s.TSDBStore.DeleteShard(t.ID)
 	default:
 		return fmt.Errorf("%q should not be executed across a cluster", stmt.String())
 	}

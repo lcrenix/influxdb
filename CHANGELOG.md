@@ -2,6 +2,8 @@
 
 ### Features
 
+- [#6012](https://github.com/influxdata/influxdb/pull/6012): Add DROP SHARD support.
+
 ### Bugfixes
 
 ## v0.11.0 [unreleased]
@@ -28,6 +30,7 @@
 - [#5593](https://github.com/influxdata/influxdb/issues/5593): Modify `SHOW TAG VALUES` output for the new query engine to normalize the output.
 - [#5862](https://github.com/influxdata/influxdb/pull/5862): Make Admin UI dynamically fetch both client and server versions
 - [#2715](https://github.com/influxdata/influxdb/issues/2715): Support using field regex comparisons in the WHERE clause
+- [#5994](https://github.com/influxdata/influxdb/issues/5994): Single server
 
 ### Bugfixes
 
@@ -68,6 +71,9 @@
 - [#5949](https://github.com/influxdata/influxdb/issues/5949): Return error message when improper types are used in SELECT
 - [#5963](https://github.com/influxdata/influxdb/pull/5963): Fix possible deadlock
 - [#4688](https://github.com/influxdata/influxdb/issues/4688): admin UI doesn't display results for some SHOW queries
+- [#6006](https://github.com/influxdata/influxdb/pull/6006): Fix deadlock while running backups
+- [#5965](https://github.com/influxdata/influxdb/issues/5965): InfluxDB panic crashes while parsing "-" as Float
+- [#5835](https://github.com/influxdata/influxdb/issues/5835): Make CREATE USER default to IF NOT EXISTS
 
 ## v0.10.2 [2016-03-03]
 

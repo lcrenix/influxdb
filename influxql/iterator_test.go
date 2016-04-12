@@ -959,6 +959,7 @@ type IteratorCreator struct {
 	CreateIteratorFn  func(opt influxql.IteratorOptions) (influxql.Iterator, error)
 	FieldDimensionsFn func(sources influxql.Sources) (fields, dimensions map[string]struct{}, err error)
 	SeriesKeysFn      func(opt influxql.IteratorOptions) (influxql.SeriesList, error)
+	ExpandSourcesFn   func(sources influxql.Sources) (influxql.Sources, error)
 }
 
 func (ic *IteratorCreator) CreateIterator(opt influxql.IteratorOptions) (influxql.Iterator, error) {
@@ -984,21 +985,33 @@ func (ic *IteratorCreator) SeriesKeys(opt influxql.IteratorOptions) (influxql.Se
 	case influxql.FloatIterator:
 		for p := itr.Next(); p != nil; p = itr.Next() {
 			s := influxql.Series{Name: p.Name, Tags: p.Tags, Aux: influxql.InspectDataTypes(p.Aux)}
+			if series, ok := seriesMap[s.ID()]; ok {
+				s.Combine(&series)
+			}
 			seriesMap[s.ID()] = s
 		}
 	case influxql.IntegerIterator:
 		for p := itr.Next(); p != nil; p = itr.Next() {
 			s := influxql.Series{Name: p.Name, Tags: p.Tags, Aux: influxql.InspectDataTypes(p.Aux)}
+			if series, ok := seriesMap[s.ID()]; ok {
+				s.Combine(&series)
+			}
 			seriesMap[s.ID()] = s
 		}
 	case influxql.StringIterator:
 		for p := itr.Next(); p != nil; p = itr.Next() {
 			s := influxql.Series{Name: p.Name, Tags: p.Tags, Aux: influxql.InspectDataTypes(p.Aux)}
+			if series, ok := seriesMap[s.ID()]; ok {
+				s.Combine(&series)
+			}
 			seriesMap[s.ID()] = s
 		}
 	case influxql.BooleanIterator:
 		for p := itr.Next(); p != nil; p = itr.Next() {
 			s := influxql.Series{Name: p.Name, Tags: p.Tags, Aux: influxql.InspectDataTypes(p.Aux)}
+			if series, ok := seriesMap[s.ID()]; ok {
+				s.Combine(&series)
+			}
 			seriesMap[s.ID()] = s
 		}
 	}
@@ -1008,6 +1021,10 @@ func (ic *IteratorCreator) SeriesKeys(opt influxql.IteratorOptions) (influxql.Se
 		seriesList = append(seriesList, s)
 	}
 	return influxql.SeriesList(seriesList), nil
+}
+
+func (ic *IteratorCreator) ExpandSources(sources influxql.Sources) (influxql.Sources, error) {
+	return ic.ExpandSourcesFn(sources)
 }
 
 // Test implementation of influxql.FloatIterator

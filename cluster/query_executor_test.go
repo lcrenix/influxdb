@@ -76,75 +76,6 @@ func TestQueryExecutor_ExecuteQuery_SelectStatement(t *testing.T) {
 	}
 }
 
-// Ensure query executor can execute a distributed SELECT statement.
-func TestQueryExecutor_ExecuteQuery_SelectStatement_Remote(t *testing.T) {
-	// Local executor.
-	e := DefaultQueryExecutor()
-
-	// Start a second service.
-	s := MustOpenService()
-	defer s.Close()
-
-	// Mock the remote service to create an iterator.
-	s.TSDBStore.ShardIteratorCreatorFn = func(shardID uint64) influxql.IteratorCreator {
-		if shardID != 200 {
-			t.Fatalf("unexpected remote shard id: %d", shardID)
-		}
-
-		var ic IteratorCreator
-		ic.CreateIteratorFn = func(opt influxql.IteratorOptions) (influxql.Iterator, error) {
-			return &FloatIterator{Points: []influxql.FloatPoint{
-				{Name: "cpu", Time: int64(0 * time.Second), Value: 20},
-			}}, nil
-		}
-		return &ic
-	}
-
-	// Two shards are returned. One local and one remote.
-	e.MetaClient.ShardsByTimeRangeFn = func(sources influxql.Sources, tmin, tmax time.Time) (a []meta.ShardInfo, err error) {
-		return []meta.ShardInfo{
-			{ID: 100, Owners: []meta.ShardOwner{{NodeID: 0}}},
-			{ID: 200, Owners: []meta.ShardOwner{{NodeID: 1}}},
-		}, nil
-	}
-
-	// The meta client should return node data for the remote node.
-	e.MetaClient.DataNodeFn = func(id uint64) (*meta.NodeInfo, error) {
-		return &meta.NodeInfo{ID: 1, TCPHost: s.Addr().String()}, nil
-	}
-
-	// The local node should return a single iterator.
-	e.TSDBStore.ShardIteratorCreatorFn = func(id uint64) influxql.IteratorCreator {
-		if id != 100 {
-			t.Fatalf("unexpected shard id: %d", id)
-		}
-
-		var ic IteratorCreator
-		ic.CreateIteratorFn = func(opt influxql.IteratorOptions) (influxql.Iterator, error) {
-			return &FloatIterator{Points: []influxql.FloatPoint{
-				{Name: "cpu", Time: int64(0 * time.Second), Value: 10},
-			}}, nil
-		}
-		return &ic
-	}
-
-	// Verify all results from the query.
-	if a := ReadAllResults(e.ExecuteQuery(`SELECT count(value) FROM cpu`, "db0", 0)); !reflect.DeepEqual(a, []*influxql.Result{
-		{
-			StatementID: 0,
-			Series: []*models.Row{{
-				Name:    "cpu",
-				Columns: []string{"time", "count"},
-				Values: [][]interface{}{
-					{time.Unix(0, 0).UTC(), float64(30)},
-				},
-			}},
-		},
-	}) {
-		t.Fatalf("unexpected results: %s", spew.Sdump(a))
-	}
-}
-
 // QueryExecutor is a test wrapper for cluster.QueryExecutor.
 type QueryExecutor struct {
 	*cluster.QueryExecutor
@@ -193,6 +124,7 @@ type TSDBStore struct {
 	DeleteDatabaseFn                func(name string) error
 	DeleteMeasurementFn             func(database, name string) error
 	DeleteRetentionPolicyFn         func(database, name string) error
+	DeleteShardFn                   func(id uint64) error
 	DeleteSeriesFn                  func(database string, sources []influxql.Source, condition influxql.Expr) error
 	ExecuteShowFieldKeysStatementFn func(stmt *influxql.ShowFieldKeysStatement, database string) (models.Rows, error)
 	ExecuteShowTagValuesStatementFn func(stmt *influxql.ShowTagValuesStatement, database string) (models.Rows, error)
@@ -221,6 +153,10 @@ func (s *TSDBStore) DeleteMeasurement(database, name string) error {
 
 func (s *TSDBStore) DeleteRetentionPolicy(database, name string) error {
 	return s.DeleteRetentionPolicyFn(database, name)
+}
+
+func (s *TSDBStore) DeleteShard(id uint64) error {
+	return s.DeleteShardFn(id)
 }
 
 func (s *TSDBStore) DeleteSeries(database string, sources []influxql.Source, condition influxql.Expr) error {
@@ -275,6 +211,7 @@ type IteratorCreator struct {
 	CreateIteratorFn  func(opt influxql.IteratorOptions) (influxql.Iterator, error)
 	FieldDimensionsFn func(sources influxql.Sources) (fields, dimensions map[string]struct{}, err error)
 	SeriesKeysFn      func(opt influxql.IteratorOptions) (influxql.SeriesList, error)
+	ExpandSourcesFn   func(sources influxql.Sources) (influxql.Sources, error)
 }
 
 func (ic *IteratorCreator) CreateIterator(opt influxql.IteratorOptions) (influxql.Iterator, error) {
@@ -287,6 +224,10 @@ func (ic *IteratorCreator) FieldDimensions(sources influxql.Sources) (fields, di
 
 func (ic *IteratorCreator) SeriesKeys(opt influxql.IteratorOptions) (influxql.SeriesList, error) {
 	return ic.SeriesKeysFn(opt)
+}
+
+func (ic *IteratorCreator) ExpandSources(sources influxql.Sources) (influxql.Sources, error) {
+	return ic.ExpandSourcesFn(sources)
 }
 
 // FloatIterator is a represents an iterator that reads from a slice.
